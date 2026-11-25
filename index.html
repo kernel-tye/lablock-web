@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab Door</title>
+<style>
+  :root { --bg:#f6f6f4; --fg:#1d1d1b; --mut:#6b6b66; --card:#fff; --line:#ddd; --acc:#0072B2; --ok:#009E73; --bad:#D55E00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --fg:#eee; --mut:#999; --card:#1f1f1f; --line:#333; --acc:#56B4E9; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 system-ui, -apple-system, sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .mut { color:var(--mut); font-size:14px; }
+  .card p { margin:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-top:16px; }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:8px 14px; cursor:pointer; }
+  button.big { width:100%; padding:28px; font-size:22px; font-weight:600; background:var(--acc); color:#fff; border:0; border-radius:14px; }
+  button:disabled { opacity:.5; }
+  #msg { margin-top:12px; min-height:1.5em; font-weight:500; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  input, select { font:inherit; padding:7px 9px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); width:100%; }
+  label { display:block; font-size:14px; color:var(--mut); margin:8px 0 2px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td, th { text-align:left; padding:5px 4px; border-bottom:1px solid var(--line); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .row > * { flex:1 1 auto; }
+  code.link { display:block; word-break:break-all; font-size:12px; background:var(--bg); padding:8px; border-radius:6px; margin-top:8px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 data-t="title">Lab door</h1>
+  <div class="mut" id="who"></div>
+
+  <div id="nokey" class="card" hidden>
+    <p data-t="nokey">No key on this device. Open the personal link you were given.</p>
+  </div>
+
+  <div id="nobt" class="card" hidden>
+    <p data-t="nobt">This browser has no Web Bluetooth. Android: use Chrome. iPhone: use the free Bluefy browser.</p>
+  </div>
+
+  <div id="main" hidden>
+    <div class="card">
+      <button class="big" id="open" data-t="open">Open door</button>
+      <div id="msg"></div>
+      <div class="mut" id="batt"></div>
+    </div>
+
+    <div id="admin" class="card" hidden>
+      <h2 style="font-size:17px;margin:0" data-t="admin">Admin</h2>
+      <div class="row"><button id="btnList" data-t="list">Users</button><button id="btnLog" data-t="log">Log</button><button id="btnCfg" data-t="cfg">Motor</button></div>
+      <div id="out" style="margin-top:12px"></div>
+
+      <h3 style="font-size:15px;margin:18px 0 0" data-t="add">Add / replace a user</h3>
+      <label data-t="slot">Slot (1–47)</label><input id="aSlot" type="number" min="1" max="47">
+      <label data-t="name">Name (max 12 bytes)</label><input id="aName" maxlength="12">
+      <label data-t="role">Role</label>
+      <select id="aRole"><option value="1" data-t="user">User</option><option value="2" data-t="admin">Admin</option></select>
+      <div class="row"><button id="btnAdd" data-t="addbtn">Add and make link</button></div>
+      <div id="newlink"></div>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import * as L from './lbclient.js';
+
+const zh = (navigator.language || '').toLowerCase().startsWith('zh');
+const T = zh ? {
+  title:'实验室门', nokey:'这台设备上没有钥匙。请打开发给你的专属链接。',
+  nobt:'这个浏览器不支持网页蓝牙。安卓请用 Chrome，iPhone 请装免费的 Bluefy 浏览器。',
+  open:'开门', admin:'管理', list:'名单', log:'日志', cfg:'电机', add:'添加 / 替换用户',
+  slot:'编号（1–47）', name:'名字（最多 12 字节）', role:'角色', user:'普通用户', addbtn:'添加并生成链接',
+  connecting:'正在连接…', opened:'门已打开', fail:'失败：', batt:'电池', low:'电量低，请换电池',
+  copy:'复制链接', copied:'已复制', sendlink:'把这个链接发给对方（只发给本人，别发群里）：',
+  del:'删除', confirmDel:'确定删除', who:(n, s) => `你是 ${n}（${s} 号）`,
+} : {
+  title:'Lab door', nokey:'No key on this device. Open the personal link you were given.',
+  nobt:'This browser has no Web Bluetooth. Android: use Chrome. iPhone: use the free Bluefy browser.',
+  open:'Open door', admin:'Admin', list:'Users', log:'Log', cfg:'Motor', add:'Add / replace a user',
+  slot:'Slot (1–47)', name:'Name (max 12 bytes)', role:'Role', user:'User', addbtn:'Add and make link',
+  connecting:'Connecting…', opened:'Door opened', fail:'Failed: ', batt:'Battery', low:'Battery low, please replace',
+  copy:'Copy link', copied:'Copied', sendlink:'Send this link to that person only (not to a group chat):',
+  del:'Delete', confirmDel:'Really delete', who:(n, s) => `You are ${n} (slot ${s})`,
+};
+document.querySelectorAll('[data-t]').forEach(e => { if (typeof T[e.dataset.t] === 'string') e.textContent = T[e.dataset.t]; });
+document.documentElement.lang = zh ? 'zh' : 'en';
+const $ = id => document.getElementById(id);
+
+// 钥匙：链接 #k=<slot>.<key base64url>.<u|a>.<name>，第一次打开时存进本机，然后把地址栏里的钥匙去掉
+const store = {
+  get() { try { return JSON.parse(localStorage.getItem('lablock-key')); } catch { return null; } },
+  set(v) { try { localStorage.setItem('lablock-key', JSON.stringify(v)); return true; } catch { return false; } },
+};
+function parseLink(h) {
+  const m = /^#k=(\d+)\.([A-Za-z0-9_-]{43})\.([ua])\.?(.*)$/.exec(h);
+  return m ? { slot: +m[1], key: m[2], admin: m[3] === 'a', name: decodeURIComponent(m[4] || '') } : null;
+}
+let me = parseLink(location.hash);
+if (me) { store.set(me); history.replaceState(null, '', location.pathname + location.search); }
+else me = store.get();
+
+if (!navigator.bluetooth) $('nobt').hidden = false;
+if (!me) { $('nokey').hidden = false; }
+else {
+  $('main').hidden = false;
+  $('who').textContent = T.who(me.name || '?', me.slot);
+  if (me.admin) $('admin').hidden = false;
+}
+const myKey = me ? L.fromB64u(me.key) : null;
+
+function say(text, cls = '') { $('msg').textContent = text; $('msg').className = cls; }
+
+// 每次操作：连接 → 做事 → 断开。锁一次只能连一个人，用完马上放开
+async function withLock(fn) {
+  let t;
+  try {
+    say(T.connecting);
+    t = await L.WebBleTransport.connect();
+    const s = new L.Session(t, me.slot, myKey);
+    const c = await s.chal();
+    $('batt').textContent = `${T.batt} ${(c.battMv / 1000).toFixed(2)} V` + (c.battMv && c.battMv < 4400 ? ' · ' + T.low : '');
+    return await fn(s);
+  } catch (e) {
+    say(T.fail + (e.message || e), 'bad');
+  } finally {
+    if (t) t.disconnect();
+  }
+}
+
+// 离线缓存（不支持的浏览器直接跳过）
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+
+$('open').onclick = async () => {
+  $('open').disabled = true;
+  await withLock(async s => {
+    const r = await s.unlock();
+    if (r.status === 0) say(T.opened, 'ok'); else say(T.fail + r.statusName, 'bad');
+  });
+  $('open').disabled = false;
+};
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const opName = { 1:'unlock', 0x10:'add', 0x11:'del' };
+
+$('btnList').onclick = () => withLock(async s => {
+  const users = await s.list();
+  $('out').innerHTML = '<table><tr><th>#</th><th>name</th><th>role</th><th></th></tr>' + users.map(u =>
+    `<tr><td>${u.slot}</td><td>${esc(u.name)}</td><td>${u.role === 2 ? 'admin' : 'user'}</td>` +
+    `<td>${u.slot === me.slot ? '' : `<button data-del="${u.slot}">${T.del}</button>`}</td></tr>`).join('') + '</table>';
+  say('');
+  $('out').querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    const slot = +b.dataset.del;
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = T.confirmDel; return; }
+    withLock(async s2 => { const r = await s2.delUser(slot); say(r.statusName, r.status ? 'bad' : 'ok'); if (!r.status) b.closest('tr').remove(); });
+  });
+});
+
+$('btnLog').onclick = () => withLock(async s => {
+  const log = await s.log();
+  $('out').innerHTML = '<table><tr><th>time</th><th>slot</th><th>op</th><th>result</th></tr>' + log.map(e =>
+    `<tr><td>${e.time ? new Date(e.time * 1000).toLocaleString() : 'up ' + e.uptime + 's'}</td><td>${e.slot}</td>` +
+    `<td>${opName[e.op] ?? e.op}</td><td>${L.STATUS[e.result] ?? e.result}</td></tr>`).join('') + '</table>';
+  say('');
+});
+
+$('btnCfg').onclick = () => withLock(async s => {
+  const c = await s.config();
+  $('out').innerHTML = `
+    <label>open_ms</label><input id="cO" type="number" value="${c.open_ms}">
+    <label>hold_ms</label><input id="cH" type="number" value="${c.hold_ms}">
+    <label>close_ms</label><input id="cC" type="number" value="${c.close_ms}">
+    <div class="row"><button id="cSave">Save</button><button id="tF">Test fwd</button><button id="tR">Test rev</button></div>`;
+  say('');
+  $('cSave').onclick = () => withLock(async s2 => {
+    const r = await s2.config({ open_ms: +$('cO').value, hold_ms: +$('cH').value, close_ms: +$('cC').value });
+    say(r.status, r.status === 'OK' ? 'ok' : 'bad');
+  });
+  $('tF').onclick = () => withLock(async s2 => { const r = await s2.motorTest(1, +$('cO').value); say(r.statusName, r.status ? 'bad' : 'ok'); });
+  $('tR').onclick = () => withLock(async s2 => { const r = await s2.motorTest(2, +$('cC').value || 200); say(r.statusName, r.status ? 'bad' : 'ok'); });
+});
+
+$('btnAdd').onclick = () => {
+  const slot = +$('aSlot').value, name = $('aName').value.trim(), role = +$('aRole').value;
+  if (!(slot >= 1 && slot <= 47) || slot === me.slot || !name) { say(T.fail + 'slot / name', 'bad'); return; }
+  const key = L.randomKey();
+  withLock(async s => {
+    const r = await s.addUser(slot, role, name, key);
+    if (r.status) { say(T.fail + r.statusName, 'bad'); return; }
+    const link = `${location.origin}${location.pathname}#k=${slot}.${L.toB64u(key)}.${role === 2 ? 'a' : 'u'}.${encodeURIComponent(name)}`;
+    $('newlink').innerHTML = `<p class="mut">${T.sendlink}</p><code class="link">${esc(link)}</code><div class="row"><button id="cp">${T.copy}</button></div>`;
+    $('cp').onclick = async () => { try { await navigator.clipboard.writeText(link); $('cp').textContent = T.copied; } catch {} };
+    say('OK', 'ok');
+  });
+};
+</script>
+</body>
+</html>
