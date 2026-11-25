@@ -7,7 +7,7 @@ export const CMD_UUID     = '7fccd1ae-2263-4a58-a41d-ad562b49f039';
 export const RESP_UUID    = '7fccd1af-2263-4a58-a41d-ad562b49f039';
 export const RDY_UUID     = '7fccd1b0-2263-4a58-a41d-ad562b49f039';  // 只用来通知"结果好了"
 
-export const OP = { UNLOCK: 0x01, ADD_USER: 0x10, DEL_USER: 0x11, LIST: 0x12, LOG: 0x13, CONFIG: 0x14, MOTOR_TEST: 0x15 };
+export const OP = { UNLOCK: 0x01, ADD_USER: 0x10, DEL_USER: 0x11, LIST: 0x12, LOG: 0x13, CONFIG: 0x14, MOTOR_TEST: 0x15, DFU: 0x16 };
 export const ROLE = { NONE: 0, USER: 1, ADMIN: 2 };
 export const STATUS = ['OK', 'BAD_MAC', 'NO_USER', 'NOT_ADMIN', 'BAD_ARGS', 'NO_NONCE', 'BUSY', 'BAD_FRAME', 'BAD_OP', 'FULL'];
 export const NAME_LEN = 12;
@@ -138,17 +138,22 @@ export class Session {
     return users;
   }
 
-  async log() {
-    const out = [];
+  // 日志：从第 start 条（0=最新）往旧的取，最多 limit 条。顺便把手机时间告诉锁（锁没有时钟）
+  // 返回 { total, entries }。每条 count>1 表示合并了几次同样的失败；op=0xFF 表示那条断电写坏了
+  async log(start = 0, limit = 50, now = Math.floor(Date.now() / 1000)) {
+    const entries = [];
+    let total = 0;
     for (;;) {
-      const r = await this.cmd(OP.LOG, new Uint8Array([out.length]));
+      const r = await this.cmd(OP.LOG, concat(u32(start + entries.length), u32(now)));
       if (r.status) throw new Error('LOG ' + r.statusName);
-      const d = r.data, total = d[0], n = d[1];
-      for (let i = 0; i < n; i++) {
-        const p = 2 + i * 11;
-        out.push({ time: rd32(d, p), uptime: rd32(d, p + 4), slot: d[p + 8], op: d[p + 9], result: d[p + 10] });
+      const d = r.data, n = d[4];
+      total = rd32(d, 0);
+      for (let i = 0; i < n && entries.length < limit; i++) {
+        const p = 5 + i * 14;
+        entries.push({ index: start + entries.length, time: rd32(d, p), uptime: rd32(d, p + 4),
+                       slot: d[p + 8], op: d[p + 9], result: d[p + 10], count: d[p + 11] });
       }
-      if (n === 0 || out.length >= total) return out;
+      if (n === 0 || entries.length >= limit || start + entries.length >= total) return { total, entries };
     }
   }
 
@@ -160,6 +165,9 @@ export class Session {
   }
 
   motorTest(dir, ms) { return this.cmd(OP.MOTOR_TEST, concat(new Uint8Array([dir]), u16(ms))); }
+
+  // 锁回完话以后重启进蓝牙升级模式（名字变 AdaDFU），用 nRF Connect 传固件
+  enterDfu() { return this.cmd(OP.DFU); }
 }
 
 // 网页蓝牙的 transport

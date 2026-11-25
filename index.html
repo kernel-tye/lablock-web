@@ -77,7 +77,7 @@ const T = zh ? {
   slot:'编号（1–47）', name:'名字（最多 12 字节）', role:'角色', user:'普通用户', addbtn:'添加并生成链接',
   connecting:'正在连接…', opened:'门已打开', fail:'失败：', batt:'电池', low:'电量低，请换电池',
   copy:'复制链接', copied:'已复制', sendlink:'把这个链接发给对方（只发给本人，别发群里）：',
-  del:'删除', confirmDel:'确定删除', move:'复制我的钥匙链接，到 Bluefy 里粘贴', moved:'已复制。打开 Bluefy，在地址栏粘贴并前往', who:(n, s) => `你是 ${n}（${s} 号）`,
+  del:'删除', confirmDel:'确定删除', move:'复制我的钥匙链接，到 Bluefy 里粘贴', more:'更早的', csv:'导出 CSV', dfu:'进入升级模式', dfuSure:'确定？升级完成前锁开不了门；失败了要当场拔一次电池', dfuOk:'锁正在重启进升级模式。用 nRF Connect 连 AdaDFU 传固件。传失败就拔一次电池，别走开', moved:'已复制。打开 Bluefy，在地址栏粘贴并前往', who:(n, s) => `你是 ${n}（${s} 号）`,
 } : {
   title:'Lab door', nokey:'No key on this device. Open the personal link you were given.',
   nobt:'This browser has no Web Bluetooth. Android: use Chrome. iPhone: use the free Bluefy browser.',
@@ -85,7 +85,7 @@ const T = zh ? {
   slot:'Slot (1–47)', name:'Name (max 12 bytes)', role:'Role', user:'User', addbtn:'Add and make link',
   connecting:'Connecting…', opened:'Door opened', fail:'Failed: ', batt:'Battery', low:'Battery low, please replace',
   copy:'Copy link', copied:'Copied', sendlink:'Send this link to that person only (not to a group chat):',
-  del:'Delete', confirmDel:'Really delete', move:'Copy my key link, paste it into Bluefy', moved:'Copied. Open Bluefy, paste into the address bar and go', who:(n, s) => `You are ${n} (slot ${s})`,
+  del:'Delete', confirmDel:'Really delete', move:'Copy my key link, paste it into Bluefy', more:'Older', csv:'Export CSV', dfu:'Enter update mode', dfuSure:'Sure? The door cannot open until the update is done; if it fails, pull the battery once', dfuOk:'Lock is restarting into update mode. Use nRF Connect, device AdaDFU. If it fails, pull the battery once. Do not walk away', moved:'Copied. Open Bluefy, paste into the address bar and go', who:(n, s) => `You are ${n} (slot ${s})`,
 };
 document.querySelectorAll('[data-t]').forEach(e => { if (typeof T[e.dataset.t] === 'string') e.textContent = T[e.dataset.t]; });
 document.documentElement.lang = zh ? 'zh' : 'en';
@@ -156,7 +156,8 @@ $('open').onclick = async () => {
 };
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
-const opName = { 1:'unlock', 0x10:'add', 0x11:'del' };
+const opName = { 0:'boot', 1:'unlock', 0x10:'add', 0x11:'del', 0x13:'log', 0x14:'config', 0x16:'dfu', 0xFF:'(broken)' };
+const bootWhy = ['power on', 'reset button', 'watchdog', 'restart', 'crash', 'other'];
 
 $('btnList').onclick = () => withLock(async s => {
   const users = await s.list();
@@ -171,12 +172,31 @@ $('btnList').onclick = () => withLock(async s => {
   });
 });
 
+// 日志：先看最新 50 条，"更早的"再往前翻；"导出"把已经读到的存成 CSV
+let logRows = [], logTotal = 0;
+const fmtTime = e => e.time ? new Date(e.time * 1000).toLocaleString() : (e.op === 0xFF ? '' : 'up ' + e.uptime + 's');
+const fmtRes = e => e.op === 0 ? (bootWhy[e.result] ?? e.result) : (L.STATUS[e.result] ?? e.result);
+function drawLog() {
+  $('out').innerHTML = `<p class="mut">${logRows.length} / ${logTotal}</p>` +
+    '<table><tr><th>time</th><th>slot</th><th>op</th><th>result</th></tr>' + logRows.map(e =>
+    `<tr><td>${fmtTime(e)}</td><td>${e.slot === 0xFF ? '' : e.slot}</td><td>${opName[e.op] ?? e.op}</td>` +
+    `<td>${esc(fmtRes(e))}${e.count > 1 ? ' ×' + e.count : ''}</td></tr>`).join('') + '</table>' +
+    `<div class="row">${logRows.length < logTotal ? `<button id="logMore">${T.more}</button>` : ''}<button id="logCsv">${T.csv}</button></div>`;
+  if ($('logMore')) $('logMore').onclick = () => withLock(async s => {
+    const r = await s.log(logRows.length, 200); logRows.push(...r.entries); logTotal = r.total; drawLog(); say('');
+  });
+  $('logCsv').onclick = () => {
+    const csv = 'time,uptime_s,slot,op,result,count\n' + logRows.map(e =>
+      [e.time ? new Date(e.time * 1000).toISOString() : '', e.time ? '' : e.uptime, e.slot === 0xFF ? '' : e.slot,
+       opName[e.op] ?? e.op, fmtRes(e), e.count].join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `lablock-log-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
+}
 $('btnLog').onclick = () => withLock(async s => {
-  const log = await s.log();
-  $('out').innerHTML = '<table><tr><th>time</th><th>slot</th><th>op</th><th>result</th></tr>' + log.map(e =>
-    `<tr><td>${e.time ? new Date(e.time * 1000).toLocaleString() : 'up ' + e.uptime + 's'}</td><td>${e.slot}</td>` +
-    `<td>${opName[e.op] ?? e.op}</td><td>${L.STATUS[e.result] ?? e.result}</td></tr>`).join('') + '</table>';
-  say('');
+  const r = await s.log(0, 50); logRows = r.entries; logTotal = r.total; drawLog(); say('');
 });
 
 $('btnCfg').onclick = () => withLock(async s => {
@@ -185,13 +205,19 @@ $('btnCfg').onclick = () => withLock(async s => {
     <label>open_ms</label><input id="cO" type="number" value="${c.open_ms}">
     <label>hold_ms</label><input id="cH" type="number" value="${c.hold_ms}">
     <label>close_ms</label><input id="cC" type="number" value="${c.close_ms}">
-    <div class="row"><button id="cSave">Save</button><button id="tF">Test fwd</button><button id="tR">Test rev</button></div>`;
+    <div class="row"><button id="cSave">Save</button><button id="tF">Test fwd</button><button id="tR">Test rev</button></div>
+    <div class="row"><button id="dfu">${T.dfu}</button></div>`;
   say('');
   $('cSave').onclick = () => withLock(async s2 => {
     const r = await s2.config({ open_ms: +$('cO').value, hold_ms: +$('cH').value, close_ms: +$('cC').value });
     say(r.status, r.status === 'OK' ? 'ok' : 'bad');
   });
   $('tF').onclick = () => withLock(async s2 => { const r = await s2.motorTest(1, +$('cO').value); say(r.statusName, r.status ? 'bad' : 'ok'); });
+  $('dfu').onclick = () => {
+    const b = $('dfu');
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = T.dfuSure; return; }
+    withLock(async s2 => { const r = await s2.enterDfu(); say(r.status ? T.fail + r.statusName : T.dfuOk, r.status ? 'bad' : 'ok'); });
+  };
   $('tR').onclick = () => withLock(async s2 => { const r = await s2.motorTest(2, +$('cC').value || 200); say(r.statusName, r.status ? 'bad' : 'ok'); });
 });
 
