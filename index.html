@@ -40,6 +40,7 @@
 
   <div id="nobt" class="card" hidden>
     <p data-t="nobt">This browser has no Web Bluetooth. Android: use Chrome. iPhone: use the free Bluefy browser.</p>
+    <div class="row" id="moveRow" hidden><button id="moveBtn" data-t="move">Copy my key link, paste it into Bluefy</button></div>
   </div>
 
   <div id="main" hidden>
@@ -76,7 +77,7 @@ const T = zh ? {
   slot:'编号（1–47）', name:'名字（最多 12 字节）', role:'角色', user:'普通用户', addbtn:'添加并生成链接',
   connecting:'正在连接…', opened:'门已打开', fail:'失败：', batt:'电池', low:'电量低，请换电池',
   copy:'复制链接', copied:'已复制', sendlink:'把这个链接发给对方（只发给本人，别发群里）：',
-  del:'删除', confirmDel:'确定删除', who:(n, s) => `你是 ${n}（${s} 号）`,
+  del:'删除', confirmDel:'确定删除', move:'复制我的钥匙链接，到 Bluefy 里粘贴', moved:'已复制。打开 Bluefy，在地址栏粘贴并前往', who:(n, s) => `你是 ${n}（${s} 号）`,
 } : {
   title:'Lab door', nokey:'No key on this device. Open the personal link you were given.',
   nobt:'This browser has no Web Bluetooth. Android: use Chrome. iPhone: use the free Bluefy browser.',
@@ -84,7 +85,7 @@ const T = zh ? {
   slot:'Slot (1–47)', name:'Name (max 12 bytes)', role:'Role', user:'User', addbtn:'Add and make link',
   connecting:'Connecting…', opened:'Door opened', fail:'Failed: ', batt:'Battery', low:'Battery low, please replace',
   copy:'Copy link', copied:'Copied', sendlink:'Send this link to that person only (not to a group chat):',
-  del:'Delete', confirmDel:'Really delete', who:(n, s) => `You are ${n} (slot ${s})`,
+  del:'Delete', confirmDel:'Really delete', move:'Copy my key link, paste it into Bluefy', moved:'Copied. Open Bluefy, paste into the address bar and go', who:(n, s) => `You are ${n} (slot ${s})`,
 };
 document.querySelectorAll('[data-t]').forEach(e => { if (typeof T[e.dataset.t] === 'string') e.textContent = T[e.dataset.t]; });
 document.documentElement.lang = zh ? 'zh' : 'en';
@@ -103,7 +104,18 @@ let me = parseLink(location.hash);
 if (me) { store.set(me); history.replaceState(null, '', location.pathname + location.search); }
 else me = store.get();
 
-if (!navigator.bluetooth) $('nobt').hidden = false;
+if (!navigator.bluetooth) {
+  $('nobt').hidden = false;
+  // 比如 iPhone 上点了微信里的链接，进了 Safari：钥匙已经存在这里，给一个按钮把完整链接复制出来，换到 Bluefy 里用
+  if (me) {
+    $('moveRow').hidden = false;
+    $('moveBtn').onclick = async () => {
+      const link = `${location.origin}${location.pathname}#k=${me.slot}.${me.key}.${me.admin ? 'a' : 'u'}.${encodeURIComponent(me.name || '')}`;
+      try { await navigator.clipboard.writeText(link); $('moveBtn').textContent = T.moved; }
+      catch { prompt('', link); }
+    };
+  }
+}
 if (!me) { $('nokey').hidden = false; }
 else {
   $('main').hidden = false;

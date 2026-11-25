@@ -1,5 +1,5 @@
 // 离线缓存：有网时总是取最新版本并更新缓存，没网时用缓存，门口没信号也能打开网页开门。
-const CACHE = 'lablock-v1';
+const CACHE = 'lablock-v2';
 const FILES = ['./', './index.html', './lbclient.js'];
 
 self.addEventListener('install', e => {
