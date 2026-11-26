@@ -77,7 +77,7 @@ const T = zh ? {
   slot:'编号（1–47）', name:'名字（最多 12 字节）', role:'角色', user:'普通用户', addbtn:'添加并生成链接',
   connecting:'正在连接…', opened:'门已打开', fail:'失败：', batt:'电池', low:'电量低，请换电池',
   copy:'复制链接', copied:'已复制', sendlink:'把这个链接发给对方（只发给本人，别发群里）：',
-  del:'删除', confirmDel:'确定删除', move:'复制我的钥匙链接，到 Bluefy 里粘贴', more:'更早的', csv:'导出 CSV', dfu:'进入升级模式', dfuSure:'确定？升级完成前锁开不了门；失败了要当场拔一次电池', dfuOk:'锁正在重启进升级模式。用 nRF Connect 连 AdaDFU 传固件。传失败就拔一次电池，别走开', moved:'已复制。打开 Bluefy，在地址栏粘贴并前往', who:(n, s) => `你是 ${n}（${s} 号）`,
+  del:'删除', confirmDel:'确定删除', move:'复制我的钥匙链接，到 Bluefy 里粘贴', more:'更早的', csv:'导出 CSV', swap:'电机方向反了（勾上就对调开/关，不用改线）', dfu:'进入升级模式', dfuSure:'确定？升级完成前锁开不了门；失败了要当场拔一次电池', dfuOk:'锁正在重启进升级模式。用 nRF Connect 连 AdaDFU 传固件。传失败就拔一次电池，别走开', moved:'已复制。打开 Bluefy，在地址栏粘贴并前往', who:(n, s) => `你是 ${n}（${s} 号）`,
 } : {
   title:'Lab door', nokey:'No key on this device. Open the personal link you were given.',
   nobt:'This browser has no Web Bluetooth. Android: use Chrome. iPhone: use the free Bluefy browser.',
@@ -85,7 +85,7 @@ const T = zh ? {
   slot:'Slot (1–47)', name:'Name (max 12 bytes)', role:'Role', user:'User', addbtn:'Add and make link',
   connecting:'Connecting…', opened:'Door opened', fail:'Failed: ', batt:'Battery', low:'Battery low, please replace',
   copy:'Copy link', copied:'Copied', sendlink:'Send this link to that person only (not to a group chat):',
-  del:'Delete', confirmDel:'Really delete', move:'Copy my key link, paste it into Bluefy', more:'Older', csv:'Export CSV', dfu:'Enter update mode', dfuSure:'Sure? The door cannot open until the update is done; if it fails, pull the battery once', dfuOk:'Lock is restarting into update mode. Use nRF Connect, device AdaDFU. If it fails, pull the battery once. Do not walk away', moved:'Copied. Open Bluefy, paste into the address bar and go', who:(n, s) => `You are ${n} (slot ${s})`,
+  del:'Delete', confirmDel:'Really delete', move:'Copy my key link, paste it into Bluefy', more:'Older', csv:'Export CSV', swap:'Motor wired backwards (swap open/close)', dfu:'Enter update mode', dfuSure:'Sure? The door cannot open until the update is done; if it fails, pull the battery once', dfuOk:'Lock is restarting into update mode. Use nRF Connect, device AdaDFU. If it fails, pull the battery once. Do not walk away', moved:'Copied. Open Bluefy, paste into the address bar and go', who:(n, s) => `You are ${n} (slot ${s})`,
 };
 document.querySelectorAll('[data-t]').forEach(e => { if (typeof T[e.dataset.t] === 'string') e.textContent = T[e.dataset.t]; });
 document.documentElement.lang = zh ? 'zh' : 'en';
@@ -205,11 +205,12 @@ $('btnCfg').onclick = () => withLock(async s => {
     <label>open_ms</label><input id="cO" type="number" value="${c.open_ms}">
     <label>hold_ms</label><input id="cH" type="number" value="${c.hold_ms}">
     <label>close_ms</label><input id="cC" type="number" value="${c.close_ms}">
+    <label><input id="cS" type="checkbox" ${c.swap ? 'checked' : ''} style="width:auto"> ${T.swap}</label>
     <div class="row"><button id="cSave">Save</button><button id="tF">Test fwd</button><button id="tR">Test rev</button></div>
     <div class="row"><button id="dfu">${T.dfu}</button></div>`;
   say('');
   $('cSave').onclick = () => withLock(async s2 => {
-    const r = await s2.config({ open_ms: +$('cO').value, hold_ms: +$('cH').value, close_ms: +$('cC').value });
+    const r = await s2.config({ open_ms: +$('cO').value, hold_ms: +$('cH').value, close_ms: +$('cC').value, swap: $('cS').checked ? 1 : 0 });
     say(r.status, r.status === 'OK' ? 'ok' : 'bad');
   });
   $('tF').onclick = () => withLock(async s2 => { const r = await s2.motorTest(1, +$('cO').value); say(r.statusName, r.status ? 'bad' : 'ok'); });

@@ -158,10 +158,16 @@ export class Session {
   }
 
   async config(set) {
-    const args = set ? concat(u16(set.open_ms), u16(set.hold_ms), u16(set.close_ms)) : new Uint8Array(0);
+    // set.swap（0/1，可省）：电机线接反了就设 1，开关两路对调
+    let args = new Uint8Array(0);
+    if (set) {
+      args = concat(u16(set.open_ms), u16(set.hold_ms), u16(set.close_ms));
+      if (set.swap !== undefined) args = concat(args, new Uint8Array([set.swap ? 1 : 0]));
+    }
     const r = await this.cmd(OP.CONFIG, args);
     if (r.status) return { status: r.statusName };
-    return { status: 'OK', open_ms: rd16(r.data, 0), hold_ms: rd16(r.data, 2), close_ms: rd16(r.data, 4) };
+    return { status: 'OK', open_ms: rd16(r.data, 0), hold_ms: rd16(r.data, 2), close_ms: rd16(r.data, 4),
+             swap: r.data.length > 6 ? r.data[6] : 0 };
   }
 
   motorTest(dir, ms) { return this.cmd(OP.MOTOR_TEST, concat(new Uint8Array([dir]), u16(ms))); }
